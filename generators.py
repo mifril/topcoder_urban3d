@@ -27,51 +27,6 @@ N_TEST = 62
 N_FOLDS = 3
 EPS = 1e-12
 
-def randomShiftScaleRotate(image, mask,
-                           shift_limit=(-0.0625, 0.0625),
-                           scale_limit=(-0.1, 0.1),
-                           rotate_limit=(-45, 45), aspect_limit=(0, 0),
-                           borderMode=cv2.BORDER_CONSTANT, u=0.5):
-    if np.random.random() < u:
-        height, width, channel = image.shape
-
-        angle = np.random.uniform(rotate_limit[0], rotate_limit[1])  # degree
-        scale = np.random.uniform(1 + scale_limit[0], 1 + scale_limit[1])
-        aspect = np.random.uniform(1 + aspect_limit[0], 1 + aspect_limit[1])
-        sx = scale * aspect / (aspect ** 0.5)
-        sy = scale / (aspect ** 0.5)
-        dx = round(np.random.uniform(shift_limit[0], shift_limit[1]) * width)
-        dy = round(np.random.uniform(shift_limit[0], shift_limit[1]) * height)
-
-        cc = np.math.cos(angle / 180 * np.math.pi) * sx
-        ss = np.math.sin(angle / 180 * np.math.pi) * sy
-        rotate_matrix = np.array([[cc, -ss], [ss, cc]])
-
-        box0 = np.array([[0, 0], [width, 0], [width, height], [0, height], ])
-        box1 = box0 - np.array([width / 2, height / 2])
-        box1 = np.dot(box1, rotate_matrix.T) + np.array([width / 2 + dx, height / 2 + dy])
-
-        box0 = box0.astype(np.float32)
-        box1 = box1.astype(np.float32)
-        mat = cv2.getPerspectiveTransform(box0, box1)
-        image = cv2.warpPerspective(image, mat, (width, height), flags=cv2.INTER_LINEAR, borderMode=borderMode,
-                                    borderValue=(
-                                        0, 0,
-                                        0,))
-        mask = cv2.warpPerspective(mask, mat, (width, height), flags=cv2.INTER_LINEAR, borderMode=borderMode,
-                                   borderValue=(
-                                       0, 0,
-                                       0,))
-
-    return image, mask
-
-def randomHorizontalFlip(image, mask, u=0.5):
-    if np.random.random() < u:
-        image = cv2.flip(image, 1)
-        mask = cv2.flip(mask, 1)
-
-    return image, mask
-
 def center_crop(x, mask, center_crop_size=1024):
     centerw, centerh = x.shape[1] // 2, x.shape[2] // 2
     halfw, halfh = center_crop_size // 2, center_crop_size // 2
@@ -98,8 +53,6 @@ def get_tiles(img, mask=None, tile_size=1024):
     masks = []
     for i in range(int(IMG_W / shift - 1)):
         for j in range(int(IMG_W / shift - 1)):
-            # print(i, int(IMG_W / shift - 1), i*shift, i*shift + tile_size)
-            # print(j, j*shift, j*shift + tile_size)
             tiles.append(img[i*shift : i*shift + tile_size, j*shift : j*shift + tile_size, :])
             if mask is not None:
                 masks.append(mask[i*shift : i*shift + tile_size, j*shift : j*shift + tile_size, :])
@@ -124,9 +77,12 @@ def get_mean_std(cur_val_fold=N_FOLDS - 1):
     img_std = mean_std_df['std_no_fold_{}'.format(cur_val_fold)].values
     return img_mean, img_std
 
-def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
-    folds = prepare_folds()
-    train_names = [name for fold in folds[0:cur_val_fold] + folds[cur_val_fold + 1:] for name in fold]
+def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1, validate=True):
+    if validate:
+        folds = prepare_folds()
+        train_names = [name for fold in folds[0:cur_val_fold] + folds[cur_val_fold + 1:] for name in fold]
+    else:
+        train_names = [name for fold in folds for name in fold]
     img_mean, img_std = get_mean_std(cur_val_fold=cur_val_fold)
     while True:
         for start in range(0, len(train_names), batch_size):
@@ -136,20 +92,26 @@ def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
             names_train_batch = train_names[start:end]
             for name in names_train_batch:
                 img = cv2.imread(os.path.join(TRAIN_DIR, '{}_RGB.tif'.format(name)))
-                img = (img - img_mean) / (img_std + EPS)
+                # img = (img - img_mean) / (img_std + EPS)
                 mask = io.imread(os.path.join(TRAIN_DIR, '{}_GTI.tif'.format(name)))
                 mask = np.array(mask != 0, np.uint8)
-                
+               
                 mask_crop = [0]
                 while (np.sum(mask_crop) == 0):
                     img_crop, mask_crop = random_crop(img, mask, img_h)
-                
+
+                # if not os.path.exists('../output/train_imgs'):
+                #     os.makedirs('../output/train_imgs')
+                # f = os.path.join('../output/train_imgs', '{}.png'.format(name))
+                # cv2.imwrite(f, img_crop)
+                # f = os.path.join('../output/train_imgs', '{}_mask.png'.format(name))
+                # cv2.imwrite(f, mask_crop * 255)
 
                 mask_crop = np.expand_dims(mask_crop, axis=2)
                 x_batch.append(img_crop)
                 y_batch.append(mask_crop)
 
-            x_batch = np.array(x_batch, np.float32)
+            x_batch = np.array(x_batch, np.float32) / 255.0
             y_batch = np.array(y_batch, np.float32)
             
             yield x_batch, y_batch
@@ -166,7 +128,7 @@ def val_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
             names_valid_batch = val_names[start:end]
             for name in names_valid_batch:
                 img = cv2.imread(os.path.join(TRAIN_DIR, '{}_RGB.tif'.format(name)))
-                img = (img - img_mean) / (img_std + EPS)
+                # img = (img - img_mean) / (img_std + EPS)
                 mask = io.imread(os.path.join(TRAIN_DIR, '{}_GTI.tif'.format(name)))
                 mask = np.array(mask != 0, np.uint8)
 
@@ -174,12 +136,19 @@ def val_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
                 while (np.sum(mask_crop) == 0):
                     img_crop, mask_crop = random_crop(img, mask, img_h)
 
+                # if not os.path.exists('../output/val_imgs'):
+                #     os.makedirs('../output/val_imgs')
+                # f = os.path.join('../output/val_imgs', '{}.png'.format(name))
+                # cv2.imwrite(f, img_crop)
+                # f = os.path.join('../output/val_imgs', '{}_mask.png'.format(name))
+                # cv2.imwrite(f, mask_crop * 255)
+
                 mask_crop = np.expand_dims(mask_crop, axis=2)
                 x_batch.append(img_crop)
                 y_batch.append(mask_crop)
 
 
-            x_batch = np.array(x_batch, np.float32)
+            x_batch = np.array(x_batch, np.float32) / 255.0
             y_batch = np.array(y_batch, np.float32)
             
             yield x_batch, y_batch

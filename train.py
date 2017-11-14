@@ -20,7 +20,7 @@ import tensorflow as tf
 import h5py
 import gc
 
-def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5):   
+def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True):   
     load_best_weights_max(model, model_name, cur_val_fold, is_train=True, is_folds=True)
 
     callbacks = [
@@ -41,15 +41,22 @@ def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epoc
             mode='max'),
         TensorBoard(log_dir='logs')]
 
-    model.fit_generator(generator=train_generator(batch_size, img_h, img_w),
-        steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
-        epochs=n_epochs,
-        verbose=1,
-        callbacks=callbacks,
-        validation_data=val_generator(batch_size, img_h, img_w),
-        validation_steps=np.ceil(N_VAL / float(batch_size)))
+    if validate:
+        model.fit_generator(generator=train_generator(batch_size, img_h, img_w),
+            steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
+            epochs=n_epochs,
+            verbose=1,
+            callbacks=callbacks,
+            validation_data=val_generator(batch_size, img_h, img_w),
+            validation_steps=np.ceil(N_VAL / float(batch_size)))
+    else:
+        model.fit_generator(generator=train_generator(batch_size, img_h, img_w, validate=False),
+            steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
+            epochs=n_epochs,
+            verbose=1,
+            callbacks=callbacks)
 
-def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5):   
+def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True):   
     load_best_weights_min(model, model_name, cur_val_fold, is_train=True, is_folds=True)
 
     callbacks = [
@@ -70,13 +77,20 @@ def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=10
             mode='min'),
         TensorBoard(log_dir='logs')]
 
-    model.fit_generator(generator=train_generator(batch_size, img_h, img_w),
-        steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
-        epochs=n_epochs,
-        verbose=1,
-        callbacks=callbacks,
-        validation_data=val_generator(batch_size, img_h, img_w),
-        validation_steps=np.ceil(N_VAL / float(batch_size)))
+    if validate:
+        model.fit_generator(generator=train_generator(batch_size, img_h, img_w),
+            steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
+            epochs=n_epochs,
+            verbose=1,
+            callbacks=callbacks,
+            validation_data=val_generator(batch_size, img_h, img_w),
+            validation_steps=np.ceil(N_VAL / float(batch_size)))
+    else:
+        model.fit_generator(generator=train_generator(batch_size, img_h, img_w, validate=False),
+            steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
+            epochs=n_epochs,
+            verbose=1,
+            callbacks=callbacks)
 
 def search_best_threshold(model, model_name, img_h, img_w, load_best_weights, batch_size=32, start_thr=0.3, end_thr=0.71, delta=0.01):
     df_train = pd.read_csv('../input/train_masks.csv')
@@ -114,16 +128,30 @@ if __name__ == '__main__':
     parser.add_argument("--start_fold", type=int, default=0, help="predictions directory")
     parser.add_argument("--start_lr", type=float, default=1e-3, help="initial learning rate")
     parser.add_argument("--batch", type=int, default=1, help="batch size")
+    parser.add_argument("--patience", type=int, default=5, help="LRSheduler patience (Early Stopping - 2 * patience)")
+    parser.add_argument("--model", type=int, default=1, help="model to train")
+    parser.add_argument("--opt", type=str, default='adam', help="model optimiser")
+    parser.add_argument("--train_type", type=str, default='loss', help="train type (dice or loss)")
+    parser.add_argument("--img_size", type=int, default=512, help="NN input size")
+    parser.add_argument("--no_val", action="store_true", help="validation flag")
     args = parser.parse_args()
+
+    models = [None, model_1, model_2, model_3]
+    opts = {'adam': Adam, 'rmsprop': RMSprop, 'sgd': SGD}
+    model = models[args.model]
+    validate = not args.no_val
 
     if args.folds:
         for cur_val_fold in range(args.start_fold, N_FOLDS):
-            # model, model_name, img_h, img_w = model_1(lr=args.start_lr)
-            model, model_name, img_h, img_w = model_2(lr=args.start_lr)
-            # train_dice(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=1, patience=5, reduce_rate=0.1)
-            train(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=5, reduce_rate=0.1)
+            opt = opts[args.opt](args.start_lr)
+            model, model_name, img_h, img_w = model(opt, args.img_size)
+            if args.train_type == 'dice':
+                train_dice(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
+            else:
+                train(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
             gc.collect()
     else:
-        model, model_name, img_h, img_w = model_1(lr=args.start_lr)
-        train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=1000, batch_size=args.batch, patience=5, reduce_rate=0.1)
+        opt = opts[args.opt](args.start_lr)
+        model, model_name, img_h, img_w = model(opt)
+        train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
     gc.collect()

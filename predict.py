@@ -33,23 +33,34 @@ def threshold_small(mask_img, labeled_array, num_features, pixel_threshold=100):
     labeled_array, num_features = ndimage.label(mask_img)
     return mask_img, labeled_array, num_features
 
-# works only when tile size is 1024
-# UGLY HARDCODE. I hate myself for this
-def construct_img_from_tiles(tiles):
+
+def construct_img_from_tiles(tiles, tile_size=1024):
     result = np.zeros((IMG_W, IMG_H, 1))
-    # print(result.shape, tiles[0].shape, tiles[0][:768, :768].shape)
-    result[:768, :768] = tiles[0][:768, :768]
-    result[768:1280, :768] = tiles[3][256:768, :768]
-    result[1280:, :768] = tiles[6][256:, :768]
-
-    result[:768, 768:1280] = tiles[1][:768, 256:768]
-    result[768:1280, 768:1280] = tiles[4][256:768, 256:768]
-    result[1280:, 768:1280] = tiles[7][256:, 256:768]
-
-    result[:768, 1280:] = tiles[2][:768, 256:]
-    result[768:1280, 1280:] = tiles[5][256:768, 256:]
-    result[1280:, 1280:] = tiles[8][256:, 256:]
+    shift = int(tile_size / 2)
+    N = int(IMG_W / shift - 1)
+    for i in range(N):
+        for j in range(N):
+            result[i*shift : i*shift + tile_size, j*shift : j*shift + tile_size] = tiles[i * N + j]
     return result
+
+# # works only when tile size is 1024
+# # UGLY HARDCODE. I hate myself for this
+# def construct_img_from_tiles(tiles):
+#     print (tiles.shape)
+#     result = np.zeros((IMG_W, IMG_H, 1))
+#     # print(result.shape, tiles[0].shape, tiles[0][:768, :768].shape)
+#     result[:768, :768] = tiles[0][:768, :768]
+#     result[768:1280, :768] = tiles[3][256:768, :768]
+#     result[1280:, :768] = tiles[6][256:, :768]
+
+#     result[:768, 768:1280] = tiles[1][:768, 256:768]
+#     result[768:1280, 768:1280] = tiles[4][256:768, 256:768]
+#     result[1280:, 768:1280] = tiles[7][256:, 256:768]
+
+#     result[:768, 1280:] = tiles[2][:768, 256:]
+#     result[768:1280, 1280:] = tiles[5][256:768, 256:]
+#     result[1280:, 1280:] = tiles[8][256:, 256:]
+#     return result
 
 # def predict(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=True):
 #     cur_val_fold = 2
@@ -88,10 +99,12 @@ def predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size
         i, X_batch, batch_names = batch
         if cur_img == -1 or cur_img != i:
             if cur_img != -1:
-                preds.append(construct_img_from_tiles(np.concatenate(cur_img_preds)))
+                preds.append(construct_img_from_tiles(np.concatenate(cur_img_preds), img_h))
+                break
             names.append(batch_names)
             cur_img = i
             cur_img_preds = []
+
 
         cur_pred = model.predict_on_batch(X_batch)
         if tta:
@@ -102,7 +115,7 @@ def predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size
         
         cur_img_preds.append(cur_pred)
 
-    preds.append(construct_img_from_tiles(np.concatenate(cur_img_preds)))
+    preds.append(construct_img_from_tiles(np.concatenate(cur_img_preds), img_h))
 
     preds = np.array(preds)
     names = np.concatenate(names)
@@ -249,19 +262,21 @@ def make_submission(out_file, pred_dir=PRED_DIR, delete_small=True):
         
     f_submit.close()
 
-# python predict.py -tdf --out_file tta_folds --pred_dir ../output/tta_folds
 if __name__ == '__main__':
-    model, model_name, img_h, img_w = model_1()
-
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', "--tta", action="store_true", help="TTA usage flag")
     parser.add_argument("-f", '--folds', action="store_true", help="use all folds")
     parser.add_argument("-s", "--only_make_submission", action="store_true", help="if set, will not run predict() and save_predictions()")
     parser.add_argument("-d", "--delete_small", action="store_true", help="if set, small objects will be deleted from masks")
-    parser.add_argument("--out_file", default=model_name, help="submission file")
+    parser.add_argument("--out_file", default='out', help="submission file")
     parser.add_argument("--pred_dir", default=PRED_DIR, help="predictions directory")
+    parser.add_argument("--model", type=int, default=1, help="model to train")
+    parser.add_argument("--img_size", type=int, default=512, help="NN input size")
     args = parser.parse_args()
 
+    models = [None, model_1, model_2, model_3]
+    model = models[args.model]
+    model, model_name, img_h, img_w = model(Adam(1e-3), args.img_size)
 
     load_best_weights = load_best_weights_min
 
@@ -276,3 +291,4 @@ if __name__ == '__main__':
             preds, names = predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta)
             save_predictions(preds, names, pred_dir=args.pred_dir)
     make_submission(OUTPUT_DIR + args.out_file + '.txt', pred_dir=args.pred_dir, delete_small=args.delete_small)
+    gc.collect()
