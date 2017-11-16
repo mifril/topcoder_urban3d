@@ -173,7 +173,8 @@ def load_best_weights_min(model, model_name, cur_val_fold, is_train = True, is_f
                 os.makedirs(wdir_save)
     else:
         wdir = 'weights_' + str(model_name) + '/'
-        
+
+    print('looking for weights in {}'.format(wdir))
     if not os.path.exists(wdir):
         os.makedirs(wdir)
     elif len(os.listdir(wdir)) > 0:

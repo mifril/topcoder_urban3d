@@ -5,7 +5,7 @@ import os
 import cv2
 from skimage import io
 import scipy.misc as scm
-from dask import delayed, threaded, compute
+from sklearn.model_selection import KFold
 
 INPUT_DIR = '../input/'
 OUTPUT_DIR = '../output/'
@@ -20,12 +20,13 @@ IMG_W = 2048
 BACKGROUND_LABEL = 2
 
 N_TRAIN_ALL = 174
-N_FOLDS = 6
 N_TRAIN = 116
 N_VAL = 58
 N_TEST = 62
 N_FOLDS = 3
 EPS = 1e-12
+
+RS = 17
 
 def center_crop(x, mask, center_crop_size=1024):
     centerw, centerh = x.shape[1] // 2, x.shape[2] // 2
@@ -35,16 +36,19 @@ def center_crop(x, mask, center_crop_size=1024):
 def random_crop(x, mask, random_crop_size=1024):
     w, h = x.shape[0], x.shape[1]
     # print (x.shape, w ,h)
-    rangew = (w - random_crop_size) // 2
-    rangeh = (h - random_crop_size) // 2
+    rangew = (w - random_crop_size)
+    rangeh = (h - random_crop_size)
     offsetw = 0 if rangew == 0 else np.random.randint(rangew)
     offseth = 0 if rangeh == 0 else np.random.randint(rangeh)
     return x[offsetw : offsetw + random_crop_size, offseth : offseth + random_crop_size, :], mask[offsetw : offsetw + random_crop_size, offseth : offseth + random_crop_size]
 
 def prepare_folds():
     names = glob.glob(os.path.join(TRAIN_DIR, '*_RGB.tif'))
-    names = [name.split('_RGB')[0].split('\\')[1] for name in names]
-    folds = [names[i:i + N_VAL] for i in range(N_FOLDS)]
+    names = np.array([name.split('_RGB')[0].split('\\')[1] for name in names])
+    kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=RS)
+    folds = []
+    for _, test_index in kf.split(names):
+        folds.append(names[test_index])
     return folds
 
 def get_tiles(img, mask=None, tile_size=1024):
@@ -83,6 +87,8 @@ def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1, validate
         train_names = [name for fold in folds[0:cur_val_fold] + folds[cur_val_fold + 1:] for name in fold]
     else:
         train_names = [name for fold in folds for name in fold]
+    print('CVF: ', cur_val_fold)     
+    print(np.array(train_names))
     img_mean, img_std = get_mean_std(cur_val_fold=cur_val_fold)
     while True:
         for start in range(0, len(train_names), batch_size):
@@ -92,7 +98,7 @@ def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1, validate
             names_train_batch = train_names[start:end]
             for name in names_train_batch:
                 img = cv2.imread(os.path.join(TRAIN_DIR, '{}_RGB.tif'.format(name)))
-                # img = (img - img_mean) / (img_std + EPS)
+                img = (img - img_mean) / (img_std + EPS)
                 mask = io.imread(os.path.join(TRAIN_DIR, '{}_GTI.tif'.format(name)))
                 mask = np.array(mask != 0, np.uint8)
                
@@ -111,14 +117,16 @@ def train_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1, validate
                 x_batch.append(img_crop)
                 y_batch.append(mask_crop)
 
-            x_batch = np.array(x_batch, np.float32) / 255.0
+            # x_batch = np.array(x_batch, np.float32) / 255.0
+            x_batch = np.array(x_batch, np.float32)
             y_batch = np.array(y_batch, np.float32)
-            
             yield x_batch, y_batch
 
 def val_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
     folds = prepare_folds()
     val_names = [name for name in folds[cur_val_fold]]
+    print('CVF: ', cur_val_fold)
+    print(np.array(val_names))
     img_mean, img_std = get_mean_std(cur_val_fold=cur_val_fold)
     while True:
         for start in range(0, len(val_names), batch_size):
@@ -128,7 +136,7 @@ def val_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
             names_valid_batch = val_names[start:end]
             for name in names_valid_batch:
                 img = cv2.imread(os.path.join(TRAIN_DIR, '{}_RGB.tif'.format(name)))
-                # img = (img - img_mean) / (img_std + EPS)
+                img = (img - img_mean) / (img_std + EPS)
                 mask = io.imread(os.path.join(TRAIN_DIR, '{}_GTI.tif'.format(name)))
                 mask = np.array(mask != 0, np.uint8)
 
@@ -148,11 +156,14 @@ def val_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
                 y_batch.append(mask_crop)
 
 
-            x_batch = np.array(x_batch, np.float32) / 255.0
+            # x_batch = np.array(x_batch, np.float32) / 255.0
+            x_batch = np.array(x_batch, np.float32)
             y_batch = np.array(y_batch, np.float32)
             
             yield x_batch, y_batch
 
+
+# model 3 trained on normalized imgs - remove comment and /255
 def test_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
     imgs = glob.glob(os.path.join(TEST_DIR, '*_RGB.tif'))
     imgs = [img.split('_RGB')[0].split('\\')[1] for img in imgs]
@@ -169,11 +180,11 @@ def test_generator(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
 
         for j in range(0, tiles.shape[0], batch_size):
             x_batch = tiles[j:j+batch_size]
+            # x_batch = np.array(x_batch, np.float32) / 255.0
             x_batch = np.array(x_batch, np.float32)
             yield img_n, x_batch, batch_names
             batch_names = []
         img_n += 1
-
 
 # def train_generator_resize(batch_size, img_h, img_w, cur_val_fold=N_FOLDS - 1):
 #     folds = prepare_folds()
