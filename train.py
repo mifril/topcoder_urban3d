@@ -20,26 +20,27 @@ import tensorflow as tf
 import h5py
 import gc
 
-def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True):   
-    load_best_weights_max(model, model_name, cur_val_fold, is_train=True, is_folds=True)
+def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True, wdir=None):   
+    load_best_weights_max(model, model_name, cur_val_fold, is_train=True, is_folds=True, wdir=wdir)
 
     callbacks = [
-        EarlyStopping(monitor='val_dice_loss',
+        EarlyStopping(monitor='val_dice',
             patience=patience * 2,
             verbose=1,
             min_delta=1e-6,
             mode='max'),
-        ReduceLROnPlateau(monitor='val_dice_loss',
+        ReduceLROnPlateau(monitor='val_dice',
             factor=reduce_rate,
             patience=patience,
             verbose=1,
             epsilon=1e-6,
             mode='max'),
-        ModelCheckpoint(monitor='val_dice_loss',
-            filepath='weights_' + str(model_name) + '/fold_' + str(cur_val_fold) + '/{val_dice_loss:.6f}-{epoch:03d}.h5',
+        ModelCheckpoint(monitor='val_dice',
+            filepath='weights_' + str(model_name) + '/fold_' + str(cur_val_fold) + '/{val_dice:.6f}-{epoch:03d}.h5',
             save_best_only=True,
             mode='max'),
-        TensorBoard(log_dir='logs')]
+        # TensorBoard(log_dir='logs')
+        ]
 
     if validate:
         model.fit_generator(generator=train_generator(batch_size, img_h, img_w, cur_val_fold),
@@ -56,28 +57,28 @@ def train_dice(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epoc
             verbose=1,
             callbacks=callbacks)
 
-def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True):   
-    load_best_weights_min(model, model_name, cur_val_fold, is_train=True, is_folds=True)
-
-    callbacks = [
-        EarlyStopping(monitor='val_loss',
-            patience=patience * 2,
-            verbose=1,
-            min_delta=1e-6,
-            mode='min'),
-        ReduceLROnPlateau(monitor='val_loss',
-            factor=reduce_rate,
-            patience=patience,
-            verbose=1,
-            epsilon=1e-6,
-            mode='min'),
-        ModelCheckpoint(monitor='val_loss',
-            filepath='weights_' + str(model_name) + '/fold_' + str(cur_val_fold) + '/{val_loss:.6f}-{val_dice_loss:.6f}-{epoch:03d}.h5',
-            save_best_only=True,
-            mode='min'),
-        TensorBoard(log_dir='logs')]
+def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=100, batch_size=32, patience=5, reduce_rate=0.5, validate=True, wdir=None):   
+    load_best_weights_min(model, model_name, cur_val_fold, is_train=True, is_folds=True, wdir=wdir)
 
     if validate:
+        callbacks = [
+            EarlyStopping(monitor='val_loss',
+                patience=patience * 2,
+                verbose=1,
+                min_delta=1e-6,
+                mode='min'),
+            ReduceLROnPlateau(monitor='val_loss',
+                factor=reduce_rate,
+                patience=patience,
+                verbose=1,
+                epsilon=1e-6,
+                mode='min'),
+            ModelCheckpoint(monitor='val_loss',
+                filepath='weights_' + str(model_name) + '/fold_' + str(cur_val_fold) + '/{val_loss:.6f}-{val_dice:.6f}-{epoch:03d}.h5',
+                save_best_only=True,
+                mode='min')
+            ]
+
         model.fit_generator(generator=train_generator(batch_size, img_h, img_w, cur_val_fold),
             steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
             epochs=n_epochs,
@@ -86,41 +87,29 @@ def train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=10
             validation_data=val_generator(batch_size, img_h, img_w, cur_val_fold),
             validation_steps=np.ceil(N_VAL / float(batch_size)))
     else:
+        callbacks = [
+            EarlyStopping(monitor='loss',
+                patience=patience * 2,
+                verbose=1,
+                min_delta=1e-6,
+                mode='min'),
+            ReduceLROnPlateau(monitor='loss',
+                factor=reduce_rate,
+                patience=patience,
+                verbose=1,
+                epsilon=1e-6,
+                mode='min'),
+            ModelCheckpoint(monitor='loss',
+                filepath='weights_' + str(model_name) + '/fold_' + str(cur_val_fold) + '/{loss:.6f}-{dice:.6f}-{epoch:03d}_no_val.h5',
+                save_best_only=True,
+                mode='min')
+            ]
+
         model.fit_generator(generator=train_generator(batch_size, img_h, img_w, validate=False),
-            steps_per_epoch=np.ceil(N_TRAIN / float(batch_size)),
+            steps_per_epoch=np.ceil(N_TRAIN_ALL / float(batch_size)),
             epochs=n_epochs,
             verbose=1,
             callbacks=callbacks)
-
-def search_best_threshold(model, model_name, img_h, img_w, load_best_weights, batch_size=32, start_thr=0.3, end_thr=0.71, delta=0.01):
-    df_train = pd.read_csv('../input/train_masks.csv')
-    ids_train = df_train['img'].map(lambda s: s.split('.')[0])
-
-    load_best_weights(model, model_name)
-   
-    y_pred = []
-    y_val = []
-    cur_batch = 0
-    for val_batch in val_generator(batch_size, img_h, img_w):
-        X_val_batch, y_val_batch = val_batch
-        y_val.append(y_val_batch)
-        y_pred.append(model.predict_on_batch(X_val_batch))
-        cur_batch += 1
-        if cur_batch > N_VAL:
-            break
-
-    y_val, y_pred = np.concatenate(y_val), np.concatenate(y_pred)
-
-    best_dice = -1
-    best_thr = -1
-
-    for cur_thr in tqdm(np.arange(start_thr, end_thr, delta)):
-        cur_dice = get_score(y_val, y_pred, cur_thr)
-        if cur_dice > best_dice:
-            print('thr: {}, val dice: {:.5}'.format(cur_thr, cur_dice))
-            best_dice = cur_dice
-            best_thr = cur_thr
-    return best_thr
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train U-Net')
@@ -134,9 +123,10 @@ if __name__ == '__main__':
     parser.add_argument("--train_type", type=str, default='loss', help="train type (dice or loss)")
     parser.add_argument("--img_size", type=int, default=512, help="NN input size")
     parser.add_argument("--no_val", action="store_true", help="validation flag")
+    parser.add_argument("--wdir", type=str, default=None, help="weights dir, if None - load by model_name")
     args = parser.parse_args()
 
-    models = [None, model_1, model_2, model_3]
+    models = [None, model_1, model_2, model_3, model_4]
     opts = {'adam': Adam, 'rmsprop': RMSprop, 'sgd': SGD}
     model_f = models[args.model]
     validate = not args.no_val
@@ -147,12 +137,15 @@ if __name__ == '__main__':
             opt = opts[args.opt](args.start_lr)
             model, model_name, img_h, img_w = model_f(opt, args.img_size)
             if args.train_type == 'dice':
-                train_dice(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
+                train_dice(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate, wdir=args.wdir)
             else:
-                train(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
+                train(model, model_name, img_h, img_w, cur_val_fold, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate, wdir=args.wdir)
             gc.collect()
     else:
         opt = opts[args.opt](args.start_lr)
-        model, model_name, img_h, img_w = model(opt)
-        train(model, model_name, img_h, img_w, cur_val_fold=N_FOLDS - 1, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate)
+        model, model_name, img_h, img_w = model_f(opt)
+        if args.train_type == 'dice':
+                train_dice(model, model_name, img_h, img_w, cur_val_fold=0, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate, wdir=args.wdir)
+        else:
+            train(model, model_name, img_h, img_w, cur_val_fold=0, n_epochs=1000, batch_size=args.batch, patience=args.patience, reduce_rate=0.1, validate=validate, wdir=args.wdir)
     gc.collect()

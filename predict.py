@@ -33,7 +33,6 @@ def threshold_small(mask_img, labeled_array, num_features, pixel_threshold=100):
     labeled_array, num_features = ndimage.label(mask_img)
     return mask_img, labeled_array, num_features
 
-
 def construct_img_from_tiles(tiles, tile_size=1024):
     result = np.zeros((IMG_W, IMG_H, 1))
     shift = int(tile_size / 2)
@@ -98,9 +97,9 @@ def construct_img_from_tiles(tiles, tile_size=1024):
 
 #     return preds, names
 
-def predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=True):
-    cur_val_fold = N_FOLDS - 1
-    load_best_weights(model, model_name, cur_val_fold, is_train = False, is_folds=True)
+def predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=True, wdir=None):
+    cur_val_fold = 0
+    load_best_weights(model, model_name, cur_val_fold, is_train = False, is_folds=True, wdir=wdir)
     batch_iterator = test_generator(batch_size, img_h, img_w, cur_val_fold)
 
     preds = []
@@ -134,12 +133,12 @@ def predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size
 
     return preds, names
 
-def predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=True, start_batch=0, n_batches=N_TEST):
+def predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=True, start_batch=0, n_batches=N_TEST, wdir=None):
     preds = []
     names = []
 
     for cur_val_fold in range(N_FOLDS):
-        load_best_weights(model, model_name, cur_val_fold, is_train = False, is_folds=True)
+        load_best_weights(model, model_name, cur_val_fold, is_train = False, is_folds=True, wdir=wdir)
         batch_iterator = test_generator(batch_size, img_h, img_w, cur_val_fold)
 
         fold_preds = []
@@ -182,36 +181,7 @@ def predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batc
 
     return preds, names
 
-# def search_best_threshold(model, model_name, img_h, img_w, load_best_weights, batch_size=32, start_thr=0.3, end_thr=0.71, delta=0.01):
-#     for cur_val_fold in range(N_FOLDS):
-#         load_best_weights(model, model_name, cur_val_fold, is_train = False, is_folds=True)
-#         batch_iterator = test_generator(batch_size, img_h, img_w, cur_val_fold)
-   
-#         y_pred = []
-#         y_val = []
-#         cur_batch = 0
-#         for val_batch in val_generator(ids_val_split, batch_size, img_h, img_w):
-#             X_val_batch, y_val_batch = val_batch
-#             y_val.append(y_val_batch)
-#             y_pred.append(model.predict_on_batch(X_val_batch))
-#             cur_batch += 1
-#             if cur_batch > ids_val_split.shape[0]:
-#                 break
-
-#     y_val, y_pred = np.concatenate(y_val), np.concatenate(y_pred)
-
-#     best_dice = -1
-#     best_thr = -1
-
-#     for cur_thr in tqdm(np.arange(start_thr, end_thr, delta)):
-#         cur_dice = get_score(y_val, y_pred, cur_thr)
-#         if cur_dice > best_dice:
-#             print('thr: {}, val dice: {:.5}'.format(cur_thr, cur_dice))
-#             best_dice = cur_dice
-#             best_thr = cur_thr
-#     return best_thr
-
-def save_predictions(preds, names, pred_dir, threshold=0.3):
+def save_predictions(preds, names, pred_dir, threshold=0.4):
     if not os.path.exists(pred_dir):
         os.makedirs(pred_dir)
     for pred, name in zip(preds, names):
@@ -252,9 +222,10 @@ if __name__ == '__main__':
     parser.add_argument("--pred_dir", default='', help="predictions directory")
     parser.add_argument("--model", type=int, default=1, help="model to train")
     parser.add_argument("--img_size", type=int, default=512, help="NN input size")
+    parser.add_argument("--wdir", type=str, default=None, help="weights dir, if None - load by model_name")
     args = parser.parse_args()
 
-    models = [None, model_1, model_2, model_3]
+    models = [None, model_1, model_2, model_3, model_4]
     model_f = models[args.model]
     model, model_name, img_h, img_w = model_f(Adam(1e-3), args.img_size)
 
@@ -266,10 +237,10 @@ if __name__ == '__main__':
             n_batches = 20
             for start_batch in range(0, N_TEST, n_batches):
                 print ('Predict batches [{}; {}]'.format(start_batch, start_batch + n_batches))
-                preds, names = predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta, start_batch=start_batch, n_batches=n_batches)
+                preds, names = predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta, start_batch=start_batch, n_batches=n_batches, wdir=args.wdir)
                 save_predictions(preds, names, pred_dir)
         else:
-            preds, names = predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta)
+            preds, names = predict_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta, wdir=args.wdir)
             save_predictions(preds, names, pred_dir)
     make_submission(OUTPUT_DIR + args.out_file + '.txt', pred_dir, delete_small=args.delete_small)
     gc.collect()

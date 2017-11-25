@@ -1,5 +1,4 @@
 import numpy as np
-import glob
 import os
 import pandas as pd
 import cv2
@@ -19,10 +18,7 @@ N_TRAIN = 116
 N_VAL = 58
 N_FOLDS = 3
 
-def calculate_mean_std():
-    # tiles = glob.glob(os.path.join(TRAIN_DIR, '*_RGB.tif'))
-    # tiles = [tile.split('_RGB')[0].split('\\')[1] for tile in tiles]
-        
+def calculate_mean_std():       
     res = pd.DataFrame()
 
     folds = prepare_folds()
