@@ -63,22 +63,10 @@ def get_unet_dilated(img_h, img_w, init_nb=32, loss=bce_dice_loss):
 
     return model
 
-def double_conv_layer(x, size, dropout, batch_norm):
-    conv = Conv2D(size, (3, 3), padding='same')(x)
-    if batch_norm is True:
-        conv = BatchNormalization()(conv)
-    conv = Activation('relu')(conv)
-    conv = Conv2D(size, (3, 3), padding='same')(conv)
-    if batch_norm is True:
-        conv = BatchNormalization()(conv)
-    conv = Activation('relu')(conv)
-    if dropout > 0:
-        conv = Dropout(dropout)(conv)
-    return conv
-
-
-def get_unet_bnd(dropout_val=0.0, batch_norm=True):
+def get_unet(img_h, img_w, dropout_val=0.0, batch_norm=False):
     filters = 32
+
+    inputs = Input((img_h, img_w, 3))
 
     conv_512 = double_conv_layer(inputs, filters, dropout_val, batch_norm)
     pool_256 = MaxPooling2D(pool_size=(2, 2))(conv_512)
@@ -125,50 +113,50 @@ def get_unet_bnd(dropout_val=0.0, batch_norm=True):
     model = Model(inputs, conv_final)
     return model
 
-def get_unet(img_h, img_w):
-    inputs = Input((img_h, img_w, 3))
-    conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv1)
-    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+# def get_unet(img_h, img_w):
+#     inputs = Input((img_h, img_w, 3))
+#     conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+#     conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv1)
+#     pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
 
-    conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(pool1)
-    conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv2)
-    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+#     conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(pool1)
+#     conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv2)
+#     pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
 
-    conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(pool2)
-    conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv3)
-    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+#     conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(pool2)
+#     conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv3)
+#     pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
 
-    conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(pool3)
-    conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv4)
-    pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
+#     conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(pool3)
+#     conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv4)
+#     pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
 
-    conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(pool4)
-    conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(conv5)
+#     conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(pool4)
+#     conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(conv5)
 
-    up6 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv5), conv4])
-    conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(up6)
-    conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv6)
+#     up6 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv5), conv4])
+#     conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(up6)
+#     conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv6)
 
-    up7 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv6), conv3])
-    conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(up7)
-    conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv7)
+#     up7 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv6), conv3])
+#     conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(up7)
+#     conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv7)
 
-    up8 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv7), conv2])
-    conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(up8)
-    conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv8)
+#     up8 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv7), conv2])
+#     conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(up8)
+#     conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv8)
 
-    up9 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv8), conv1])
-    conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(up9)
-    conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv9)
+#     up9 = Concatenate(axis=3)([UpSampling2D(size=(2, 2))(conv8), conv1])
+#     conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(up9)
+#     conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv9)
 
-    conv10 = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
+#     conv10 = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
 
-    model = Model(input=inputs, output=conv10)
-    return model
+#     model = Model(input=inputs, output=conv10)
+#     return model
 
 
-def get_unet_2(img_h, img_w):
+def get_unet_big(img_h, img_w):
     inputs = Input((img_h, img_w, 3))
     conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
     conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv1)
@@ -266,7 +254,7 @@ def model_1(opt=Adam(1e-3), img_size=512):
     return model, model_name, img_size, img_size
 
 def model_2(opt=Adam(1e-3), img_size=512):
-    model = get_unet_bnd(img_size, img_size)
+    model = get_unet(img_size, img_size, 0.2, True)
     model_name = 'unet_{}_bnd'.format(img_size)
     model.compile(optimizer=opt, loss=bce_dice_loss, metrics=[dice, 'accuracy'])
     
@@ -280,7 +268,7 @@ def model_3(opt=Adam(1e-3), img_size=512):
     return model, model_name, img_size, img_size 
 
 def model_4(opt=Adam(1e-3), img_size=512):
-    model = get_unet_2(img_size, img_size)
+    model = get_unet_big(img_size, img_size)
     model_name = 'unet_{}_big'.format(img_size)
     model.compile(optimizer=opt, loss=bce_dice_loss, metrics=[dice, 'accuracy'])
     

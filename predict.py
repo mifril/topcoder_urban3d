@@ -234,7 +234,7 @@ if __name__ == '__main__':
 
     if not args.only_make_submission:
         if args.folds:
-            n_batches = 20
+            n_batches = 10
             for start_batch in range(0, N_TEST, n_batches):
                 print ('Predict batches [{}; {}]'.format(start_batch, start_batch + n_batches))
                 preds, names = predict_folds_tiles(model, model_name, img_h, img_w, load_best_weights, batch_size=1, tta=args.tta, start_batch=start_batch, n_batches=n_batches, wdir=args.wdir)
