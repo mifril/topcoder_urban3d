@@ -225,7 +225,7 @@ if __name__ == '__main__':
     parser.add_argument("--wdir", type=str, default=None, help="weights dir, if None - load by model_name")
     args = parser.parse_args()
 
-    models = [None, model_1, model_2, model_3, model_4]
+    models = [None, model_1, model_2, model_3, model_4, model_5]
     model_f = models[args.model]
     model, model_name, img_h, img_w = model_f(Adam(1e-3), args.img_size)
 
